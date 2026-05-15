@@ -1,0 +1,56 @@
+---
+- name: Compare FortiOS Backup to Live Config
+  hosts: fortigates
+  connection: httpapi
+  collections:
+    - fortinet.fortios
+  gather_facts: false
+  vars:
+    # Defining the path once to avoid typos
+    local_repo_path: "/tmp/network-demos-repo"
+    backup_file: "{{ local_repo_path }}/fortigate/backups/fortigate1.conf"
+
+  tasks:
+    - name: Clone Repository
+      ansible.scm.git_retrieve:
+        origin:
+          url: "http://gitea:{{ password }}@aap:3000/gitea/network-demos-repo.git"
+        parent_directory: "/tmp/"
+        branch:
+          name: "backup-20260430T201433"
+          duplicate_detection: no
+      register: repository
+      delegate_to: localhost
+      run_once: true
+
+    - name: Read local backup file content
+      ansible.builtin.set_fact:
+        # We MUST use lookup to get the text INSIDE the file
+        backup_content: "{{ lookup('ansible.builtin.file', backup_file) }}"
+      delegate_to: localhost
+
+    - name: Retrieve current configuration from FortiGate
+      fortinet.fortios.fortios_monitor_fact:
+        selector: "system_config_backup"
+        vdom: "root"
+        params:
+          scope: "global"
+      register: live_config_data  # Changed name to be clear
+
+    - name: Sanitize and Diff
+      ansible.utils.fact_diff:
+        # We clean BOTH sides here. 
+        # regex_replace removes the entire line to prevent empty lines in the diff.
+        before: "{{ backup_content | regex_replace('(?m)^.*set uuid .*\\n', '') | regex_replace('(?m)^.*set last-updated .*\\n', '') | regex_replace('(?m)^.*#conf_file_ver=.*\\n', '') }}"
+        after: "{{ live_config_data.meta.raw | regex_replace('(?m)^.*set uuid .*\\n', '') | regex_replace('(?m)^.*set last-updated .*\\n', '') | regex_replace('(?m)^.*#conf_file_ver=.*\\n', '') }}"
+      register: config_diff
+
+    - name: Show New/Changed Entries
+      ansible.builtin.debug:
+        msg: |
+          ENTRIES FOUND ON FIREWALL BUT MISSING FROM BACKUP:
+          -------------------------------------------------
+          {{ config_diff.diff_text.splitlines() | select('match', '^\+') | reject('match', '^\+\+\+') | map('regex_replace', '^\+', '') | join('\n') }}
+      when: 
+        - config_diff.diff_text is defined
+        - config_diff.diff_text.splitlines() | select('match', '^\+') | reject('match', '^\+\+\+') | list | length > 0

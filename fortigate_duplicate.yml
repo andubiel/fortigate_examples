@@ -1,0 +1,85 @@
+---
+- name: FortiGate Audit - Policies and Duplicate IPs
+  hosts: fortigates
+  connection: httpapi
+  collections:
+    - fortinet.fortios
+  gather_facts: false
+
+  tasks:
+    - name: Fetch Address Objects
+      fortinet.fortios.fortios_configuration_fact:
+        selector: "firewall_address"
+      register: addr_facts
+
+    - name: Fetch Firewall Policies
+      fortinet.fortios.fortios_configuration_fact:
+        selector: "firewall_policy"
+      register: policy_facts
+
+    - name: Analyze for Duplicate IP Addresses
+      ansible.builtin.set_fact:
+        duplicate_report: >-
+          {% set ip_map = {} %}
+          {% for item in addr_facts.meta.results %}
+            {% if item.subnet is defined and item.subnet != "0.0.0.0 0.0.0.0" %}
+              {% set current_list = ip_map.get(item.subnet, []) %}
+              {% set _ = current_list.append(item.name) %}
+              {% set _ = ip_map.update({item.subnet: current_list}) %}
+            {% endif %}
+          {% endfor %}
+          {% set dupes = [] %}
+          {% for ip, names in ip_map.items() %}
+            {% if names | length > 1 %}
+              {% set _ = dupes.append({'ip': ip, 'names': names}) %}
+            {% endif %}
+          {% endfor %}
+          {{ dupes | to_json }}
+
+    - name: Convert String to List
+      ansible.builtin.set_fact:
+        duplicate_list: "{{ duplicate_report | from_json }}"
+
+    - name: Report Duplicate Host IP Objects
+      ansible.builtin.debug:
+        msg: |
+          DUPLICATE IP ADDRESS OBJECTS
+          ============================
+          {% for dupe in duplicate_list %}
+          Subnet: {{ dupe.ip }}
+          Redundant Names: {{ dupe.names | join(', ') }}
+          {% endfor %}
+      when: duplicate_list | length > 0
+
+    - name: Report Policies Using Duplicate Objects
+      ansible.builtin.debug:
+        msg: |
+          POLICIES REQUIRING ATTENTION
+          ============================
+          The following policies use one or more of the duplicate objects listed above:
+          -------------------------------------------------
+          {% for policy in policy_facts.meta.results %}
+            {% set policy_dupes = [] %}
+            {# Flatten src/dst names into one list to check #}
+            {% set policy_objs = (policy.srcaddr | map(attribute='name') | list) + (policy.dstaddr | map(attribute='name') | list) %}
+            
+            {% for dupe in duplicate_list %}
+              {% for name in dupe.names %}
+                {% if name in policy_objs %}
+                  {% set _ = policy_dupes.append(name ~ " (" ~ dupe.ip ~ ")") %}
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+
+            {% if policy_dupes | length > 0 %}
+          POLICY ID: {{ policy.policyid }} | Name: {{ policy.name or 'Unnamed' }}
+          --> Uses Duplicate(s): {{ policy_dupes | unique | join(', ') }}
+          -------------------------------------------------
+            {% endif %}
+          {% endfor %}
+      when: duplicate_list | length > 0
+
+    - name: Clean Config Status
+      ansible.builtin.debug:
+        msg: "No duplicates or policy overlaps found. Keep it up!"
+      when: duplicate_list | length == 0

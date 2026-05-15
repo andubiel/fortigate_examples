@@ -1,0 +1,44 @@
+---
+- name: Configure Web Server Access (DNAT)
+  hosts: fortigates
+  collections:
+    - fortinet.fortios
+  connection: httpapi
+  vars:
+    external_vip_ip: "172.20.20.100"
+    internal_server_ip: "192.168.10.10"
+
+  tasks:
+    - name: Create Virtual IP for Web Server
+      fortios_firewall_vip:
+        state: "present"
+        firewall_vip:
+          name: "VIP_Web_Server_External"
+          extip: "{{ external_vip_ip }}"
+          mappedip:
+            - range: "{{ internal_server_ip }}"
+          extintf: "port1"
+          portforward: "enable"
+          extport: "80"
+          mappedport: "80"
+
+    - name: Create Firewall Policy to Allow Traffic
+      fortios_firewall_policy:
+        state: "present"
+        firewall_policy:
+          name: "Inbound_Web_Access"
+          policyid: 10
+          srcintf:
+            - name: "port1"
+          dstintf:
+            - name: "port2"
+          srcaddr:
+            - name: "all"
+          dstaddr:
+            - name: "VIP_Web_Server_External"
+          action: "accept"
+          schedule: "always"
+          service:
+            - name: "HTTP"
+          nat: "disable"
+          logtraffic: "all"

@@ -1,0 +1,61 @@
+---
+- name: Backup FortiGate Configuration to GIT Branch
+  hosts: fortigates
+  collections:
+    - fortinet.fortios
+  connection: httpapi
+  gather_facts: false
+
+  vars:
+    backup_dir: "/tmp/network-demos-repo/fortigate/backups"
+
+  tasks:
+    - name: Grab Current Time
+      ansible.builtin.setup:
+      delegate_to: localhost
+      run_once: true
+  
+    - name: Clone Repository
+      ansible.scm.git_retrieve:
+        origin:
+          url: "http://gitea:{{ password }}@aap:3000/gitea/network-demos-repo.git"
+        parent_directory: /tmp/
+        branch:
+          name: "backup-{{ansible_date_time.iso8601_basic_short}}"
+          duplicate_detection: no
+        timeout: 240
+      register: repository
+      delegate_to: localhost
+      run_once: true
+   
+    - name: Create backup directory
+      delegate_to: localhost
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Retrieve full configuration from FortiGate
+      fortios_monitor_fact:
+        selector: "system_config_backup"
+        vdom: "root"
+        params:
+          scope: "global"
+      register: backup_data
+
+    - name: Save configuration to a local file
+      delegate_to: localhost
+      copy:
+        content: "{{ backup_data.meta.raw }}"
+        dest: "{{ backup_dir }}/{{ inventory_hostname }}.conf"
+
+    - name: Publish the changes to Gitea
+      ansible.scm.git_publish:
+        path: "{{ repository['path'] }}"
+        token: "{{ password }}"
+        user:
+          name: "{{ username }}"
+          email: "{{ email }}"
+        timeout: 240
+      delegate_to: localhost
+      run_once: true

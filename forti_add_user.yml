@@ -1,0 +1,49 @@
+---
+- name: Create Local FortiGate User
+  hosts: fortigates
+  collections:
+    - fortinet.fortios
+  connection: httpapi
+  gather_facts: false
+  
+  #Normally would vault the passwords
+  vars: 
+   user_local:
+          name: "lab_user"
+          status: "enable"
+          type: "password"
+          passwd: "Password123!"
+   system_admin:
+          name: "net_admin"
+          accprofile: "super_admin"  
+          # Or "read_only"
+          vdom:
+            - name: "root"
+          password: "Password123!"
+    
+  tasks:
+    - name: Remove an exiting local user prior to password update for VPN or Captive Portal Usage
+      fortios_user_local:
+        vdom: "root"
+        state: "absent"
+        user_local: "{{ user_local }}"
+
+    - name: Create a new local user for VPN or Captive Portal Usage
+      fortios_user_local:
+        vdom: "root"
+        state: "present"
+        user_local: "{{ user_local }}"
+
+    - name: Remove an existing super_admin to change password
+      fortios_system_admin:
+        vdom: "root"
+        state: "absent"
+        system_admin: "{{ system_admin }}"
+          
+    - name: Add a new super_admin
+      fortios_system_admin:
+        vdom: "root"
+        state: "present"
+        system_admin: "{{ system_admin }}"
+          
+        

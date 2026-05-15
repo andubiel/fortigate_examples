@@ -1,0 +1,36 @@
+---
+- name: Get FortiGate Facts
+  hosts: fortigates
+  collections:
+    - fortinet.fortios
+  connection: httpapi
+  gather_facts: false
+
+  tasks:
+    - name: Retrieve System Status Facts
+      fortios_monitor_fact:
+        selector: "system_status"
+        vdom: "root"
+      register: sys_status
+
+    - name: Retrieve Interface Facts
+      fortios_configuration_fact:
+        selector: "system_interface"
+        vdom: "root"
+      register: sys_interfaces
+
+    - name: Display Serial Number and Version
+      debug:
+        msg: 
+          - "Host: {{ inventory_hostname }}"
+          - "Serial: {{ sys_status.meta.serial }}"
+          - "Version: {{ sys_status.meta.version }}"
+          - "Build: {{ sys_status.meta.build }}"
+
+    - name: Display Management Interface IP
+      debug:
+        msg: "Interface {{ item.name }} IP is {{ item.ip.split(' ')[0] }} with Mask {{ item.ip.split(' ')[1] }}"
+      loop: "{{ sys_interfaces.meta.results }}"
+      when: item.name == "port1"
+      loop_control:
+        label: "{{ item.name }}"

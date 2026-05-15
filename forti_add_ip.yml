@@ -1,0 +1,23 @@
+---
+- name: Configure Port2 via API
+  hosts: fortigates
+  collections:
+    - fortinet.fortios
+  connection: httpapi
+  vars:
+    system_interface_data:
+        name: "port2"
+        mode: "static"
+        ip: "192.168.10.1 255.255.255.0"
+        allowaccess:
+          - ping
+          - https
+          - ssh
+        status: "up"
+  
+  tasks:
+    - name: Update Port2 IP and Access
+      fortios_system_interface:
+        vdom: "root"
+        state: "present"
+        system_interface: "{{ system_interface_data }}"

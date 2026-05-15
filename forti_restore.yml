@@ -1,0 +1,47 @@
+---
+- name: Restore FortiGate Configuration
+  hosts: fortigates
+  collections:
+    - fortinet.fortios
+  connection: httpapi
+  gather_facts: false
+
+  tasks:
+    - name: Retrieve repository from Gitea
+      ansible.scm.git_retrieve:
+        origin:
+          url: "http://gitea:{{password}}@aap:3000/gitea/network-demos-repo.git"
+        parent_directory: /tmp
+        branch:
+          name: "{{branch_name}}"
+          duplicate_detection: no  
+        timeout: 240
+      register: repository
+      delegate_to: localhost
+      run_once: true
+
+    - name: Load backup file content
+      set_fact:
+        # We must use lookup to get the text, not just the path string
+        full_config_text: "{{ lookup('file', repository['path'] + '/fortigate/backups/' + inventory_hostname + '.conf') }}"
+
+    - name: Upload and Restore Configuration
+      fortios_execute:
+        # execute uses the dot notation verified in your previous error logs
+        selector: "restore.system.config"
+        vdom: "root"
+        params:
+          source: "upload"
+          scope: "global"
+          content: "{{ full_config_text }}"
+      register: restore_result
+      # ignore_errors is critical: the FortiGate reboots immediately after receiving this POST
+      ignore_errors: yes 
+
+    - name: Wait for FortiGate to reboot and apply config
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ ansible_httpapi_port | default(443) }}"
+        delay: 60
+        timeout: 600
+      delegate_to: localhost

@@ -1,0 +1,36 @@
+---
+- name: FortiGate Backup to Server
+  hosts: fortigates
+  collections:
+    - fortinet.fortios
+  connection: httpapi
+  vars:
+    backup_dir: "/home/tdubiel/fortigate/backups"
+   
+  tasks:
+    - name: Grab Current Time
+      ansible.builtin.setup:
+      delegate_to: localhost
+      run_once: true
+
+    - name: Generate Backup from FortiGate
+      fortios_monitor_fact:
+        selector: 'system_config_backup'
+        vdom: 'root'
+        params:
+          scope: 'global'
+      register: backup_data
+
+    - name: Save Backup to Local Controller
+      copy:
+        content: "{{ backup_data.meta.raw }}"
+        dest: "{{ backup_dir }}/{{ inventory_hostname }}_{{ansible_date_time.iso8601_basic_short}}_config.conf"
+      delegate_to: 'backup-server'
+      vars:
+       ansible_connection: ssh
+       ansible_user: "{{ backup_user }}"
+       ansible_password: "{{ backup_password }}"
+       ansible_become_pass: "{{ backup_become_pass }}"
+       
+       
+
